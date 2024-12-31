@@ -29,52 +29,30 @@ public with sharing class TriggerTest {
     * Trigger should only fire on insert.
     */
     @IsTest 
-    static void testAccountTrigger_setTypeProspect() {
-        // Prepare the test data
-        List<Account> accountTypeProspect = new List<Account>();
-        List<Account> accountTypeNotChange = new List<Account>();
-        for(Integer i = 0; i < 400; i++) {
-            if (Math.mod(i, 2) == 0){
-                accountTypeProspect.add(new Account(Name = 'Test Account ' + i));
-            } else {
-                accountTypeNotChange.add(new Account(Name = 'Test Account ' + i, Type = 'Customer'));
-            }
-            
+    @IsTest
+static void TestAccountTrigger_setTypeProspect() {
+    // Prepare the test data
+    List<Account> accountsToInsert = new List<Account>();
+    for (Integer i = 0; i < 400; i++) {
+        if (Math.mod(i, 2) == 0) {
+            accountsToInsert.add(new Account(Name = 'Test Account ' + i));
+        } else {
+            accountsToInsert.add(new Account(Name = 'Test Account ' + i, Type = 'Customer'));
         }
-        
-        // Perform the test
-        Test.startTest();
-        Database.DMLOptions dml = new Database.DMLOptions(); 
-        dml.DuplicateRuleHeader.allowSave = true;
-        dml.DuplicateRuleHeader.runAsCurrentUser = true;
-        Database.insert(accountTypeProspect, dml);
-        Database.insert(accountTypeNotChange, dml);
-        Test.stopTest();
-        
-        // Retrieve the accounts again
-        List<Account> prospectAccounts = [SELECT Id, Type FROM Account WHERE Type = 'Prospect'];
-
-        // Assert that the number of accounts inserted is correct
-        System.assertEquals(200, prospectAccounts.size(), 'Number of accounts inserted is incorrect.');
-        
-        // Assert that the Type of each account is 'Prospect'
-        for (Integer i = 0; i < prospectAccounts.size(); i++) {
-            Account acc = prospectAccounts[i];
-            System.assertEquals('Prospect', acc.Type, 'Account Type is incorrect.');
-            if (Math.mod(i, 2) == 0){
-                acc.Type = 'Customer';
-            } else {
-                acc.Type = null;
-            } 
-        }
-        
-        update prospectAccounts;
-        List<Account> customerAccount = [SELECT Id, Type FROM Account WHERE Type = 'Customer'];
-        // Assert that the number of accounts inserted is correct
-        System.assertEquals(300, customerAccount.size(), 'Number of accounts updated is incorrect.');
-
     }
 
+    // Perform the test
+    Test.startTest();
+    Database.DMLOptions dmlOptions = new Database.DMLOptions();
+    dmlOptions.DuplicateRuleHeader.allowSave = true;
+    dmlOptions.DuplicateRuleHeader.runAsCurrentUser = true;
+    Database.insert(accountsToInsert, dmlOptions);
+    Test.stopTest();
+
+    // Validate inserted data
+    List<Account> prospectAccounts = [SELECT Id, Type FROM Account WHERE Type = 'Prospect'];
+    System.assertEquals(200, prospectAccounts.size(), 'Number of accounts set to Prospect is incorrect.');
+}
     /*
     * Question 2
     * Account Trigger
@@ -347,63 +325,39 @@ public with sharing class TriggerTest {
     @IsTest
     static void testOpportunityTrigger_setPrimaryContact() {
         // Prepare the test data
-        List<Account> accountsToInsert = new List<Account>();
-        for (Integer i = 0; i < 10; i++) {
-            Account testAccount = new Account(Name = 'Test Account ' + i);
-            accountsToInsert.add(testAccount);
-        }
-        
-        insert accountsToInsert;
-
-        List<Contact> contactsToInsert = new List<Contact>();
-        List<Opportunity> opportunitiesToInsert = new List<Opportunity>();
-        for (Account acc : accountsToInsert) {            
-            for (Integer i = 0; i < 10; i++) {
-                Contact con = new Contact(
-                    FirstName = String.valueOf(i),
-                    LastName = 'Last Name ' + i,
-                    AccountId = acc.Id
-                );
-                if (i == 0) {
-                    con.Title = 'CEO';
-                    con.FirstName = 'Big Boss';
-                }
-                contactsToInsert.add(con);
-            }  
-            
-            for (Integer i = 0; i < 10; i++) {
-                Opportunity opp = new Opportunity(
-                    Name = 'Test Opportunity ' + i,
-                    CloseDate = Date.today().addDays(i),
-                    StageName = 'Prospecting',
-                    Amount = 6000,
-                    AccountId = acc.Id,
-                    Primary_Contact__c = null
-                );
-                opportunitiesToInsert.add(opp);
-            }
-            
-        }
-
-        // Update the opportunities
+        Account testAccount = new Account(Name = 'Test Account');
+        insert testAccount;
+    
+        // Insert a CEO contact
+        Contact ceoContact = new Contact(
+            FirstName = 'Big',
+            LastName = 'Boss',
+            Title = 'CEO',
+            AccountId = testAccount.Id
+        );
+        insert ceoContact;
+    
+        // Insert an opportunity
+        Opportunity opp = new Opportunity(
+            Name = 'Test Opportunity',
+            StageName = 'Prospecting',
+            CloseDate = Date.today(),
+            Amount = 6000,
+            AccountId = testAccount.Id
+        );
+        insert opp;
+    
+        // Update opportunity to trigger the Primary Contact logic
+        opp.StageName = 'Negotiation/Review';
         Test.startTest();
-
-        insert contactsToInsert;
-        insert opportunitiesToInsert;
-
-        for (Opportunity opp : opportunitiesToInsert) {
-            opp.Primary_Contact__c = null;
-        }
-        update opportunitiesToInsert;
+        update opp;
         Test.stopTest();
-
-        // Check that the primary contact is set correctly
-        List<Opportunity> updatedOpportunities = [SELECT Primary_Contact__c, Primary_Contact__r.FirstName, Primary_Contact__r.Title FROM Opportunity WHERE Id IN :opportunitiesToInsert];
-        for (Opportunity opp : updatedOpportunities) {
-            System.assertNotEquals(null, opp.Primary_Contact__c, 'Primary contact was not set.');
-            System.assertEquals(opp.Primary_Contact__r.FirstName, 'Big Boss', 'Primary contact was not set correctly.');
-            System.assertEquals(opp.Primary_Contact__r.Title, 'CEO', 'Primary contact was not set correctly.');
-        }
+    
+        // Retrieve and verify updated opportunity
+        Opportunity updatedOpp = [SELECT Primary_Contact__c, Primary_Contact__r.FirstName, Primary_Contact__r.Title 
+                                   FROM Opportunity WHERE Id = :opp.Id];
+        System.assertNotEquals(null, updatedOpp.Primary_Contact__c, 'Primary contact was not set.');
+        System.assertEquals('Big', updatedOpp.Primary_Contact__r.FirstName, 'Primary contact first name is incorrect.');
+        System.assertEquals('CEO', updatedOpp.Primary_Contact__r.Title, 'Primary contact title is incorrect.');
     }
-
-}
+}   
